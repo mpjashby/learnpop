@@ -1,0 +1,45 @@
+---
+title: "Crime analysis for problem solving: Getting started"
+description: 
+output: 
+  learnr::tutorial:
+    progressive: true
+    css: "css/tutorial_style.css"
+runtime: shiny_prerendered
+---
+
+```{r setup, include=FALSE}
+library(learnr)
+library(tidyverse)
+knitr::opts_chunk$set(echo = FALSE)
+
+# Copy files
+if (!dir.exists("css")) dir.create("css")
+walk(
+  dir("../css/"), 
+  ~ file.copy(str_glue("../css/{.}"), str_glue("css/{.}"), overwrite = TRUE)
+)
+```
+
+
+## Introduction to R
+
+<img src="images/r-logo.png" class="right-side-image">
+
+R is a programming language designed for data analysis. It is one of the most widely used programming languages in the world and is used for everything from fraud detection in banking to working out if new cancer treatments are effective. R is used by many agencies in law enforcement to analyse large volumes of data in major investigations, to target resources where they're most needed using crime analysis, and to track the effectiveness of police interventions.
+
+R is maintained by a global team of contributors from universities and large companies who do data analysis. R is completely free to install and use on any computer, as well as being frequently updated to keep up-to-date with new techniques for analysing data.
+
+Click `Next Topic` below to continue.
+
+
+
+## Finding your way around RStudio
+
+In this course we will interact with R using a piece of software called RStudio, which (like R itself) is free. If you [think of R as a car engine](https://moderndive.netlify.app/1-getting-started.html#r-rstudio), RStudio is the controls and dials on the dashboard that you use to control the engine. 
+
+RStudio is designed by specialists to make even complicated data analysis as easy as possible. Watch this video to find your way around the different panels in the RStudio window.
+
+![](https://youtu.be/6bonySXb2_g)
+
+
