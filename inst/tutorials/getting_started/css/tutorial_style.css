@@ -53,6 +53,10 @@ h3 {
   margin-bottom: 1.5em;
 }
 
+pre, .tutorial-exercise {
+  clear: both;
+}
+
 p.full-width-image, p.centered-image, table.gt_table {
   margin-top: 1.5em;
   margin-bottom: 1.5em;

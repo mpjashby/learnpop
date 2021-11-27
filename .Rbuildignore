@@ -5,3 +5,4 @@
 ^cran-comments\.md$
 ^\.DS_Store$
 ^inst/support/*$
+^CODE_OF_CONDUCT\.md$
