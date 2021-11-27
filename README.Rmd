@@ -29,9 +29,15 @@ data to find effective solutions to crime problems.
 
 ## Installation
 
-You can install the development version of learnpop from [GitHub](https://github.com/) with:
+You can install the development version of `learnpop` from [GitHub](https://github.com/) with:
 
 ``` r
 # install.packages("devtools")
 devtools::install_github("mpjashby/learnpop")
 ```
+
+
+## Code of Conduct
+  
+The `learnpop` project is released with a [Contributor Code of Conduct](https://contributor-covenant.org/version/2/0/CODE_OF_CONDUCT.html). By contributing to this project, you agree to abide by its terms.
+  
