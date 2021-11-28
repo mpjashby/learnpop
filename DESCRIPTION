@@ -7,11 +7,10 @@ Authors@R:
 Description: This package provides tutorials to learn how to use R to analyse
     crime data to find effective solutions to crime problems.
 License: MIT + file LICENSE
-Suggests: 
-    learnr
 Encoding: UTF-8
 Imports: 
     ggmap,
+    learnr,
     lubridate,
     readxl,
     sf,
