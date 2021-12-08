@@ -1,0 +1,538 @@
+---
+title: "Crime analysis for problem solving: Repeat victimisation"
+output: 
+  learnr::tutorial:
+    progressive: true
+    css: "css/tutorial_style.css"
+runtime: shiny_prerendered
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+# Load packages
+library(learnr)
+library(scales)
+library(tidygeocoder)
+library(tidyverse)
+
+# Set options
+knitr::opts_chunk$set(echo = FALSE, fig.align='center')
+
+# Copy files
+if (!dir.exists("css")) dir.create("css")
+walk(
+  dir("../css/"), 
+  ~ file.copy(str_glue("../css/{.}"), str_glue("css/{.}"), overwrite = TRUE)
+)
+
+# load data
+addresses <- read_csv("../../extdata/chicago_addresses.csv.gz")
+addresses_for_geocoding <- addresses %>% 
+  drop_na(address) %>% 
+  mutate(address = str_to_upper(str_glue("{address}, CHICAGO, IL"))) %>% 
+  select(address) %>% 
+  distinct(address)
+robbery_victims <- read_csv("../../extdata/london_robbery_victims.csv") %>% 
+  rename(given_name = first_name, family_name = last_name)
+
+# geocode data if not done already
+if (file.exists("www/chicago_addresses_geocoded.Rds")) {
+  addresses_geocoded <- read_rds("www/chicago_addresses_geocoded.Rds")
+} else {
+  addresses_geocoded <- geocode(
+    addresses_for_geocoding, 
+    address = "address", 
+    method = "osm"
+  )
+  write_rds(addresses_geocoded, "www/chicago_addresses_geocoded.Rds")
+}
+```
+
+
+
+## Introduction
+
+All crime is concentrated: crime concentrates in a few places and at a few 
+times, while a small proportion of offenders commit a large proportion of crime.
+One of the important ways in which crime concentrates is that a large proportion
+of crime is targeted at a few victims -- a phenomenon known as *repeat 
+victimisation*.
+
+```{r rv-chart, fig.asp=0.5}
+tribble(
+  ~crime, ~prop,
+  "Violence (domestic)",	0.67,
+  "Violence (acquaintance)",	0.58,
+  "Violence (stranger)",	0.43,
+  "Robbery",	0.26,
+  "Residential burglary",	0.32
+) %>% 
+  mutate(crime = fct_reorder(crime, prop)) %>% 
+  ggplot(aes(prop, crime, label = scales::percent(prop, accuracy = 1))) +
+  geom_col(fill = "#002855") +
+  geom_label(colour = "white", fill = NA, hjust = 1, label.size = NA) +
+  scale_x_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Repeat victims suffer a large proportion of many crimes",
+    x = "proportion of all crimes that are suffered by repeat victims", 
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    plot.title.position = "plot"
+  )
+```
+
+Repeat victimisation risk is highest in the days and weeks after the initial
+crime occurs. We also know that for many crimes, once a person or target has
+been the victim of one crime, similar people and targets nearby have a greater
+relative risk of being victimised than similar targets elsewhere. This is known
+as *near-repeat victimisation*.
+
+In this tutorial we will learn how to analyse repeat and near-repeat 
+victimisation to help identify who is most at risk from crime. This is useful 
+because the concentration of crime means that by protecting a small number of
+repeat victims, it is possible to prevent a higher proportion of crime.
+
+
+
+## Geocoding locations
+
+So far in course we have used geographic data that includes locations stored as 
+pairs of co-ordinates, e.g. latitude and longitude or easting and northing. 
+Sometimes geographic data will not contain co-ordinates but instead store the 
+locations of places or events as free-text addresses.
+
+<a href="http://www.kelleysgrilleandbar.com/" title="Kelley's Grill 
+& Bar website"><img src="images/kelleys.jpg" class="right-side-image" style="border: 1px solid #333;"></a>
+
+Address fields can be very messy indeed. This is  because addresses can often be 
+stored in different formats, include different abbreviations or use different 
+spellings (including typos). For example, the official postal address 
+'[Kelley's Grill & Bar](http://www.kelleysgrilleandbar.com/), 15540 State 
+Avenue, Basehor, Kansas 66007, United States' could be stored in a local police 
+report as:
+
+  * Kelly's Bar, 15540 US Highway 40, Basehor
+  * Kelley's Grille, 15540 State
+  * Kelley's, 15540 State Av
+  * Kelley's Bar and Grill, 15540 State Ave
+  * Kelley's Bar, State Av and 155th St
+  * Kelly's Grill, State Ave btwn 155 and 158
+
+All of these address descriptions would probably be good enough for local police
+officers to know which building the author intended to reference. But since all
+these different addresses relate to the same physical location, they would make
+it very hard to (for example) work out how many incidents had occurred at 
+Kelley's Grill & Bar.
+
+To make use of data containing addresses, it is typically necessary to *geocode*
+the locations, i.e. to convert the addresses into co-ordinates. The many ways to
+describe an address mean that geocoding is often quite hard.
+
+<a href="https://jessecambon.github.io/tidygeocoder/" title="tidygeocoder website"><img src="images/tidygeocoder.png" class="right-side-image"></a>
+
+We can geocode addresses in R using the 
+[`tidygeocoder` package](https://jessecambon.github.io/tidygeocoder/), which
+provides an interface to several online geocoding services. 
+
+To run a geocoding service an organisation has to maintain a database of many 
+millions of addresses (which must be constantly updated) and handle addresses in
+many different formats, so organisations typically charge for these services or 
+limit how many addresses you can geocode for free. Most services also require 
+you to register, even if you are only making few-enough queries that you will 
+not be charged. `tidygeocoder` supports several geocoding services:
+
+```{r geocoding-services}
+tribble(
+  ~service, ~coverage, ~registration, ~`free limits`,
+  "[Nominatim](https://nominatim.org/)", "Worldwide", "not required", "1 address per second",
+  "[Location IQ](https://locationiq.com/)", "Worldwide", "[register for Location IQ](https://locationiq.com/register)", "5,000 addresses per day",
+  "[OpenCage](https://opencagedata.com/)", "Worldwide", "[register for OpenCage](https://opencagedata.com/users/sign_up)", "2,500 addresses per day",
+  "[Google](https://developers.google.com/maps/documentation/geocoding/overview)", "Worldwide", "[register for Google](https://cloud.google.com/maps-platform/)", "40,000 addresses per month",
+  "[Geocodio](https://www.geocod.io/)", "United States and Canada", "[register for Geocodio](https://dash.geocod.io/register)", "2,500 addresses per day",
+  "[US Census](https://geocoding.geo.census.gov/)", "United States", "not required", "none"
+) %>% 
+  knitr::kable() %>% 
+  kableExtra::kable_styling(full_width = FALSE)
+```
+
+Nominatim is the only service that provides world-wide coverage and does not 
+require registration, but it also has the lowest limit on the number of 
+addresses (`r scales::comma(60 * 60)`) you can geocode each day.
+
+To illustrate the geocoding process, we will find co-ordinates for the addresses
+in the object `addresses`, which holds data for 10 sexual assaults in Chicago.
+
+```{r}
+addresses %>% knitr::kable() %>% kableExtra::kable_styling(full_width = FALSE)
+```
+
+Since most geocoding services limit the number of addresses you can look up at
+a time, the first step in geocoding is removing duplicate addresses and rows 
+with missing address values. At the same time we will add the city and state to
+the end of each address, since at the moment (as with much data produced by 
+local organisations) it includes only the building number and street.
+
+```{r geocoding-exercise1, exercise=TRUE}
+addresses_for_geocoding <- addresses %>% 
+  # Drop rows that have NA values in the `address` column
+  drop_na(address) %>% 
+  # Add city and state then convert to upper case so that `distinct()` will not 
+  # treat identical addresses as different because of different cases, e.g. 
+  # 'ST' vs 'St' as abbreviations for 'Street'
+  mutate(address = str_to_upper(str_glue("{address}, CHICAGO, IL"))) %>% 
+  # Select only the address column, since we won't send the other columns to the
+  # geocoding function
+  select(address) %>% 
+  # Find all the unique rows in the data
+  distinct(address)
+
+addresses_for_geocoding
+```
+
+Since two addresses in the data were duplicates, we now have eight unique
+addresses, stored in a tibble with a single column. We can use this as the input
+to the `geocode()` function from the `tidygeocoder` package. The `address`
+argument specifies which column in the data contains the addresses and the 
+`method` column specifies which geocoding service to use -- in this case we use
+the Nominatim service, which is based on OpenStreetMap data and so can be
+chosen by specifying `method = "osm"`.
+
+```{r geocoding-exercise2, exercise=TRUE}
+library(tidygeocoder)
+
+addresses_geocoded <- geocode(
+  addresses_for_geocoding, 
+  address = "address", 
+  method = "osm"
+)
+
+addresses_geocoded
+```
+
+Now that we have the latitude and longitude for each address, we can join that
+back to the original data using the address column to match the two datasets 
+together. To do this we will create a temporary column in the original 
+`addresses` object that matches the formatting changes we made to the original
+address.
+
+```{r geocoding-exercise3, exercise=TRUE}
+addresses %>% 
+  # Create a temporary address column to use in matching the geocoded addresses
+  mutate(temp_address = str_to_upper(str_glue("{address}, CHICAGO, IL"))) %>% 
+  # `left_join()` keeps all the rows in the left-hand dataset (the original
+  # `addresses` object) and matching rows in the right-hand dataset (the 
+  # geocoding results)
+  left_join(addresses_geocoded, by = c("temp_address" = "address")) %>% 
+  # Remove the temporary address column
+  select(-temp_address)
+```
+
+We can now use this data as we would any other data.
+
+
+
+## Repeat victimisation
+
+In this part of the tutorial we will use records of `r nrow(robbery_victims)` 
+fictional victims of personal robbery in an area of north west London in 2020. 
+The object `robbery_victims` contains details:
+
+```{r}
+robbery_victims %>% 
+  slice_sample(n = 5) %>% 
+  knitr::kable() %>% 
+  kableExtra::kable_styling(full_width = FALSE)
+```
+
+We can use this data to identify how many of the robbery victims in our data 
+were victimised more than once. We can do this using the `count()` function from 
+the `dplyr` package, which was introduced in a previous tutorial.
+
+First, we can count the number of robberies in the data, which is simply the
+number of rows.
+
+```{r repeats-exercise1, exercise=TRUE}
+count(robbery_victims)
+```
+
+To find out which victims were robbed more than once, we can set the `sort`
+argument to the `count()` function so that `sort = TRUE` (`TRUE` has to be in
+capital letters), while also specifying that we want to count unique victim
+names. Since the given and family names of our victims are in separate columns 
+in the data, we will first create a new column containing the whole name, making
+it easier to identify unique victims.
+
+```{r repeats-exercise2, exercise=TRUE}
+robbery_victims %>% 
+  mutate(name = str_glue("{given_name} {family_name}")) %>% 
+  count(name, sort = TRUE, name = "robberies")
+```
+
+We can now see that a small number of robbery victims were victimised more than
+once, with `r pluck((slice_max(count(count(mutate(robbery_victims, name = str_glue("{given_name} {family_name}")), name), n, name = "freq"), order_by = n, n = 1)), "freq", 1)` being robbed four
+times in 2020.
+
+We can extend this code to find out what proportion of all victims were repeat 
+victims. To do this, we will use `mutate()` to create a new column specifying
+whether the number of robberies experienced by each victim -- stored in the new
+`robberies` column we have created using `count()` -- is greater than 1 or not.
+We can then count the number of values of that new column that are `TRUE` and
+the number that are `FALSE`. Finally, we'll add a column expressing these counts
+as a percentage of all victims, using the helper function `percent()` from the
+`scales` package to format the percentage nicely.
+
+```{r repeats-exercise3, exercise=TRUE}
+library(scales)
+
+robbery_victims %>% 
+  mutate(name = str_glue("{given_name} {family_name}")) %>% 
+  count(name, sort = TRUE, name = "robberies") %>%
+  mutate(repeat_victim = robberies > 1) %>%
+  count(repeat_victim, name = "victims") %>% 
+  mutate(percent = percent(victims / sum(victims)))
+```
+
+How many robbery victims were robbed more than once? What proportion of victims
+was this?
+
+We can also extend this code to work out how many robberies were against people
+who were repeat victims (if you think that's what we've just done, read the last
+sentence again!).
+
+```{r repeats-exercise4, exercise=TRUE}
+robbery_victims %>% 
+  mutate(name = str_glue("{given_name} {family_name}")) %>% 
+  count(name, sort = TRUE, name = "robberies") %>%
+  mutate(repeat_victim = robberies > 1) %>%
+  group_by(repeat_victim) %>%
+  summarise(robberies = sum(robberies)) %>% 
+  mutate(percent = percent(robberies / sum(robberies)))
+```
+
+Compare the answers to the two questions we've answered above:
+
+  1. What proportion of victims were repeat victims?
+  2. What proportion of robberies were experienced by repeat victims?
+
+```{r repeats-counts, include=FALSE}
+repeat_victims_count <- robbery_victims %>% 
+  mutate(name = str_glue("{given_name} {family_name}")) %>% 
+  count(name, sort = TRUE, name = "robberies") %>%
+  mutate(repeat_victim = robberies > 1) %>%
+  count(repeat_victim, name = "victims") %>% 
+  mutate(percent = percent(victims / sum(victims))) %>% 
+  filter(repeat_victim) %>% 
+  pluck("percent", 1)
+
+repeat_robberies_count <- robbery_victims %>% 
+  mutate(name = str_glue("{given_name} {family_name}")) %>% 
+  count(name, sort = TRUE, name = "robberies") %>%
+  mutate(repeat_victim = robberies > 1) %>%
+  group_by(repeat_victim) %>%
+  summarise(robberies = sum(robberies)) %>% 
+  mutate(percent = percent(robberies / sum(robberies))) %>% 
+  filter(repeat_victim) %>% 
+  pluck("percent", 1)
+```
+
+The answers to these questions show the importance of understanding the extent
+of repeat victimisation when studying a crime problem. While repeat victims made
+up `r repeat_victims_count` of victims, those victims suffered 
+`r repeat_robberies_count` of all robberies. So by concentrating on those
+`r repeat_victims_count` of robbery victims, we can potentially have an effect
+on a substantially higher proportion of all robberies.
+
+Most repeat victims of robbery were robbed twice. How could you adapt the code
+used above to work out what proportion of victims were robbed at least three
+times?
+
+```{r repeats-exercise5, exercise=TRUE, exercise.lines=8}
+
+```
+
+```{r repeats-exercise5-solution}
+# Simply replace `robberies > 1` with `robberies > 2` on line 4 of the previous code
+robbery_victims %>% 
+  mutate(name = str_glue("{given_name} {family_name}")) %>% 
+  count(name, sort = TRUE, name = "robberies") %>%
+  mutate(repeat_victim = robberies > 2) %>%
+  count(repeat_victim, name = "victims") %>% 
+  mutate(percent = percent(victims / sum(victims)))
+```
+
+Similarly, how could you adapt the code above to work out what proportion of
+robberies were experienced by people who were robbed at least three times?
+
+```{r repeats-exercise6, exercise=TRUE, exercise.lines=8}
+
+```
+
+```{r repeats-exercise6-solution}
+# Again, simply replace `robberies > 1` with `robberies > 2` on line 4 of the previous code
+robbery_victims %>% 
+  mutate(name = str_glue("{given_name} {family_name}")) %>% 
+  count(name, sort = TRUE, name = "robberies") %>%
+  mutate(repeat_victim = robberies > 2) %>%
+  group_by(repeat_victim) %>%
+  summarise(robberies = sum(robberies)) %>% 
+  mutate(percent = percent(robberies / sum(robberies)))
+```
+
+
+<!--
+## Spatial data in R
+
+The `robbery_victims` data was loaded from an Excel file, with the spatial
+information about the location of each offence stored in two columns called
+`long` and `lat`. But as far as R is concerned, these columns just contain
+numbers -- R does not know that these numbers represent locations on the surface
+of the earth. To carry out any sort of spatial analysis on this data, we first 
+have to transform it to a type of object that R understands contains spatial 
+data. We do this by transforming our existing object into a spatial data format
+known as an *SF object*. 
+
+With any spatial data, we need a way of describing where on the earth a 
+particular point (such as the location of a crime or the corner of a building)
+is located. We do this by choosing a *co-ordinate system*, such as the British
+National Grid, that tells R how to translate numerical values in the data to
+points on the surface of the Earth. Watch this video to find out about the 
+different co-ordinate systems we can use to do this.
+
+
+![](https://youtu.be/A6HH-zDl9a0)
+
+
+<a href="https://r-spatial.github.io/sf/" title="sf website"><img src="images/sf-package.gif" class="right-side-image"></a>
+
+To convert our existing data to an SF object, we can use the `st_as_sf()`
+function from the `sf` package (all the functions in the `sf` package start with
+the letters `st_`, which can be slightly confusing). This function converts a
+normal dataset to one that R recognises represents locations, which means you
+can use it for all sorts of spatial analysis.
+
+To use the `st_as_sf()` function you need to specify which columns in the data
+contain the co-ordinates for the location associated with each row, as well as
+specifying the co-ordinate system used by the data. Co-ordinate systems can be 
+specified in lots of ways (some very complicated), but the easiest is to specify 
+the *<abbr title="European Petroleum Survey Group">EPSG</abbr>* code for the 
+relevant system. An EPSG code is a unique reference number for a particular 
+co-ordinate system that R can look up in a database to get the information 
+needed to display the data on a map. The EPSG code for co-ordinates that are
+made up of a pair of numbers representing latitude and longitude is `4326`
+(this is the most-common co-ordinate system in use around the world).
+
+```{r convert-exercise1, exercise=TRUE}
+library(sf)
+
+robbery_victims_sf <- st_as_sf(robbery_victims, coords = c("long", "lat"), crs = 4326)
+
+robbery_victims_sf
+```
+
+If you look at the contents of the `robbery_victims_sf` object, you'll see that 
+there is a new column called `geometry` (you may need to use the ▸ button to see 
+it). This column stores the location information for each row.
+
+
+
+## Near-repeat victimisation
+
+As well as looking at repeat victimisation, we can identify the extent to which 
+our robbery data shows evidence of *near-repeat victimisation*. We will do this 
+using the *Knox test*, which identifies whether there were more robberies than 
+we'd expect in the area around a robbery location in the days after a robbery 
+occurs. 
+
+
+### Installing a package from GitHub
+
+The functions we need to analyse near-repeat victimisation are in the 
+`NearRepeat` package. So far, all the packages that we have used have been
+available for download from the Comprehensive R Archive Network (CRAN), which we
+can access using the `download.packages()` function. The `NearRepeat` package is
+not available on CRAN, so we will need to install from a website called 
+GitHub, which is used by many programmers to share their code.
+
+To install packages that are hosted on GitHub, we can use the `install_github()`
+function from the `remotes` package. To do that, we first have to install
+`remotes` itself.
+
+
+```{r near-exercise1-setup}
+# This code from https://stackoverflow.com/a/52112850/8222654
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+```
+
+```{r near-exercise1, exercise=TRUE}
+# First, install the `remotes` package (remember you only have to install 
+# packages once on each computer you use)
+install.packages("remotes")
+
+# Now we can load the `remotes` package
+library(remotes)
+
+# And finally we can use the `install_github()` function to install the
+# `NearRepeat` package that is hosted on GitHub -- again, we only have to do
+# this once
+install_github("wsteenbeek/NearRepeat")
+```
+
+
+The `install_github()` function produces quite a few messages to tell you what
+progress it has made in installing the package. You can check that the 
+`NearRepeat` package has installed successfully by trying to load it. Type the
+code needed to load the `NearRepeat` package.
+
+
+```{r near-exercise2, exercise=TRUE}
+
+```
+
+```{r near-exercise2-solution}
+# We can use the `library()` function to load a package. This code will not
+# produce any output unless there is a problem, in which case it will produce
+# an error message or a warning.
+library(NearRepeat)
+```
+
+
+### Identifying near-repeat patterns
+
+Now that we have installed the `NearRepeat` package and loaded it, we can use it
+to understand near-repeat robberies in our dataset. In this case, what we mean
+by near-repeat robberies that happened closer in space and/or time than we would
+expect to happen by chance.
+
+The `NearRepeat()` function from the `NearRepeat` package needs us to provide
+several pieces of information so that it can analyse near-repeat patterns.
+Specifically, we need to provide:
+
+  1. The `x` and `y` co-ordinates of each robbery.
+  2. The date on which each robbery happened.
+  3. The distance(s) in space between robberies that we are interested in. For
+     example, we might consider two robberies to be 'near' enough to each other 
+     to be interesting if they happened within 200 metres of one another.
+  4. The length(s) of time between robberies that we are interested in. For 
+     example, we might be interested in whether there are more robberies than
+     we would expect by chance within a week of each other.
+
+The co-ordinates and dates for each robbery are contained in the 
+`robbery_victims` dataset. We can work out the right distances in time and space
+by trial and error. For a first try, let's look to see if once a robbery occurs
+in a place there are more robberies between zero and 200 metres of that location 
+than we would expect by chance between zero and seven days after that initial 
+robbery.
+
+Before we can do that, there is one quirk of the `NearRepeat()` function that we
+have to deal with. Instead of processing a dataset like the `robbery_victims`
+dataset as it is, `NearRepeat()` needs 
+
+```{r near-exercise3, exercise=TRUE}
+NearRepeat()
+```
+
+-->

@@ -1,0 +1,619 @@
+---
+title: "Crime analysis for problem solving: Making charts in R"
+output: 
+  learnr::tutorial:
+    progressive: true
+    css: "css/tutorial_style.css"
+runtime: shiny_prerendered
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+# Load packages
+library(learnr)
+library(tidyverse)
+
+# Set options
+knitr::opts_chunk$set(echo = FALSE, fig.align='center')
+
+# Copy files
+if (!dir.exists("css")) dir.create("css")
+walk(
+  dir("../css/"), 
+  ~ file.copy(str_glue("../css/{.}"), str_glue("css/{.}"), overwrite = TRUE)
+)
+
+# load data
+burglary <- read_rds("../../extdata/northants_burglary.rds")
+vehicle_theft <- read_rds("../../extdata/south_africa_vehicle_theft.Rds") %>% 
+  mutate(
+    crime_category = recode(
+      crime_category,
+      "Theft of motor vehicle" = "theft_of_motor_vehicle",
+      "Theft out of or from motor vehicle" = "theft_from_motor_vehicle"
+    ),
+    # Convert theft rate from offences per 1,000 vehicle-owning households to
+    # a rate per 100,000
+    theft_rate = theft_rate * 100
+  ) %>% 
+  pivot_wider(names_from = crime_category, values_from = theft_rate)
+violence <- read_rds("../../extdata/malaysia_violence_counts.Rds")
+```
+
+
+## Introduction
+
+Presenting data is a score part of data analysis. Not only is presenting data
+key to communicating information to colleagues and partners, but presenting data
+can help understand patterns and trends as part of your analysis. In this 
+tutorial you will learn how to present data in R in several different ways.
+
+```{r ggplot2-image, fig.align="center", out.width="80%"}
+knitr::include_graphics("images/ggplot2_masterpiece.jpg")
+```
+
+
+
+## Bar charts
+
+*Bar charts* are useful for showing values on a continuous variable (e.g. a
+count of crimes) for each value of a categorical variable (e.g. neighbourhoods 
+in a city). Bar charts are very common, but there are several things we can do 
+to make them more useful. In this section we will learn how to construct a good 
+bar chart.
+
+<a href="https://ggplot2.tidyverse.org/" title="ggplot2 website"><img src="images/ggplot2.png" class="right-side-image"></a>
+
+To make charts in R we will use the `ggplot2` package, which is one of the 
+packages that is automatically loaded when you call the function 
+`library(tidyverse)`. You have already used functions from the `ggplot2`
+package to make a crime map.
+
+In this tutorial we will use data on the frequency of different types of 
+violence in the different states of Malaysia in 2017. This data from the Royal
+Malaysian Police is already loaded in an object called `violence`.
+
+In a previous tutorial you learned how to print the first few rows of a dataset.
+Type the code needed to do this in the code box below and click `Run Code` to 
+see the results.
+
+```{r bars-exercise1, exercise=TRUE}
+
+```
+
+```{r bars-exercise1-solution}
+# To print the first few rows of a dataset, you type the name of the object
+violence
+```
+
+Printing the first few rows of an object is often useful, but it has one 
+drawback: if the rows at the top of the dataset aren't representative of the
+data as a whole, you might miss things. A better way to look at part of a 
+dataset is to look at a random sample of the data. We can do this using the
+`slice_sample()` function from the `dplyr` package, which you might remember is
+loaded automatically when you load the `tidyverse` package. Run this code to
+print 10 random rows from the `violence` data.
+
+```{r bars-exercise2, exercise=TRUE}
+slice_sample(violence, n = 10)
+```
+
+From this, we can see that each row contains the count of a different type of
+crime in a different Malaysian state. We can use this data to create a simple 
+bar chart showing the number of murders in each state.
+
+```{r bars-exercise3, exercise=TRUE}
+violence %>% 
+  filter(crime_type == "murder") %>% 
+  ggplot() +
+  geom_col(aes(x = state, y = count))
+```
+
+In this code, the `filter()` function removes all the rows from the dataset 
+except those for which the `crime_type` column is equal to `murder`. The 
+`ggplot()` function tells R that we want to create a chart and everything that
+comes after that (in this case, just one more line of code) controls the 
+appearance of the chart. One little quirk to notice is that whereas we usually
+construct a pipeline of code using the pipe (`%>%`) operator, we instead combine
+the different functions that we use to make a plot using the `+` operator. Just
+remember: before `ggplot()` we use `%>%` and after `ggplot()` we use `+`. R will
+warn you if you get it wrong.
+
+By convention, each function that we add to `ggplot()` to change the appearance
+of our map goes on a new line (this makes the code easier to read) and all but
+the first line is indented by two spaces. RStudio does this indenting 
+automatically if the previous line ends with a `+` symbol, since RStudio then
+understands that there is more code to come on the next line.
+
+In the code above, it is the function `geom_col()` that tells R that we want to
+produce a bar chart rather than any other type of graphic. Later in this 
+tutorial we will see examples of other functions that begin with `geom_` to
+produce different types of chart. For example, if you want to add a layer to 
+your chart showing a scatter plot, you use the `geom_point()` function, while if 
+you want to make a line chart you use `geom_line()`.
+
+```{r example-charts, fig.align="center", out.width="80%"}
+ex_point <- tibble(x = rnorm(50, 10, 1), y = rnorm(50, 10, 1)) %>% 
+  ggplot(aes(x = x, y = y)) +
+  geom_point() +
+  labs(title = "A scatter plot using geom_point()") +
+  theme_minimal()
+ex_line <- tibble(x = 1:10, y = rpois(10, 5)) %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_line() +
+  scale_y_continuous(limits = c(0, NA)) +
+  labs(title = "A line chart using geom_line()") +
+  theme_minimal()
+cowplot::plot_grid(ex_point, ex_line, align = "hv")
+```
+
+We can improve the basic bar chart we have produced in several ways:
+
+  * We can switch the order of the variables used for the `x` (horizontal) and 
+    `y` (vertical) axes so that the bars are horizontal rather than vertical, 
+    which will stop the state names from overlapping. As a general rule, 
+    horizontal bar charts are usually better than vertical ones.
+  * We can change the axis labels, add a title and so on using the `labs()`
+    function.
+  * We can reduce the visual clutter in the chart using `theme_minimal()`.
+
+```{r bars-exercise4, exercise=TRUE}
+violence %>% 
+  filter(crime_type == "murder") %>% 
+  ggplot() +
+  geom_col(aes(x = count, y = state)) +
+  labs(
+    title = "Murders in Malaysian states, 2017",
+    x = "number of murders",
+    y = NULL,
+    caption = "Data from the Royal Malaysian Police"
+  ) +
+  theme_minimal()
+```
+
+We can also remove the grid lines on the *y* axis (i.e. those running along the 
+length of the bars) since they don't really make it any easier to understand the 
+chart. As a general principle, we want to remove anything on a chart that does 
+not contribute to communicating information, since unnecessary chart elements 
+can distract readers from understanding the data.
+
+We can remove the grid lines by setting the `panel.grid.major.y` and 
+`panel.grid.minor.y` arguments to the `theme()` function. `theme()` controls 
+lots of aspects of the appearance of charts created with `ggplot()`. To remove
+the grid lines, we use the helper function `element_blank()` to set each element
+of the grid lines to be blank.
+
+```{r bars-exercise5, exercise=TRUE, exercise.lines=17}
+violence %>% 
+  filter(crime_type == "murder") %>% 
+  ggplot() +
+  geom_col(aes(x = count, y = state)) +
+  labs(
+    title = "Murders in Malaysian states, 2017",
+    x = "number of murders",
+    y = NULL,
+    caption = "Data from the Royal Malaysian Police"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank()
+  )
+```
+
+
+
+## Showing a distribution
+
+Bar charts show a single piece of information about each category present in a
+dataset. So we might use a bar chart to show, for example, the average number of
+burglaries in neighbourhoods in different districts. But what if the average
+values masked substantial differences in the number of burglaries within each
+district? Averages often mask variation, and can sometimes be misleading as a
+result. In those circumstances it would be better to show more detail rather
+than a misleading average.
+
+Let's start with the simple example of showing the distribution of burglary
+counts within a single district. The `burglary` object contains counts of
+burglaries in each lower-layer super output area (LSOA) in Northamptonshire in 
+England in 2020. LSOAs are small statistical areas used for analysis of local
+data in the United Kingdom. To show the distribution of burglary counts within 
+one district (Kettering), we can create a *dot plot* using `geom_dotplot()`.
+
+A dot plot shows a single dot for each observation in the data (in this case,
+each LSOA). The position of each dot on the horizontal (*x*) axis shows how many
+burglaries occurred in that neighbourhood. The bars are then stacked on top of
+each other so that they don't overlap one another. 
+
+We will set the `binwidth` argument of the `geom_dotplot()` function to
+`binwidth = 1` so that dots will only be stacked on top of each other when
+neighbourhoods have the same burglary counts. We will also add some labels to
+help readers interpret the chart and limit the *y* axis to focus on the data.
+
+```{r dist-exercise1, exercise=TRUE}
+burglary %>% 
+  filter(district == "Kettering") %>% 
+  ggplot() +
+  geom_dotplot(aes(x = count), binwidth = 1) +
+  labs(
+    title = "Number of burglaries in Ketting neighbourhoods",
+    subtitle = "each dot represents one LSOA",
+    x = "count of burglaries, 2020",
+    y = "proportion of LSOAs"
+  ) +
+  theme_minimal()
+```
+
+We can see on this chart that most LSOAs had only a few burglaries in 2020 (i.e.
+most dots are to the left of the chart), while a few LSOAs had a larger number
+(the dots to the right of the chart). This is what we would expect, since we
+know the crimes are generally concentrated in a few places.
+
+
+### Plotting density curves
+
+Dot plots can be effective at showing the distribution of a variable, but are
+only really useful for a single group since they become cluttered if you try to
+show several types of dot (e.g. of different colours). One way to show the
+general distribution of a variable is to summarise the locations of the points
+on the horizontal axis by adding a *density curve* with `geom_density()`. 
+
+```{r dist-exercise2, exercise=TRUE}
+burglary %>% 
+  filter(district == "Kettering") %>% 
+  ggplot() +
+  geom_dotplot(aes(x = count), binwidth = 1) +
+  geom_density(aes(x = count), colour = "red", size = 2) +
+  labs(
+    title = "Number of burglaries in Ketting neighbourhoods",
+    subtitle = "each dot represents one LSOA",
+    x = "count of burglaries, 2020",
+    y = "proportion of LSOAs"
+  ) +
+  theme_minimal()
+```
+
+In the code above, the `aes()` function that specifies which columns in the data
+should be used to control the appearance of different parts of the chart is 
+duplicated, once inside `geom_dotplot()` and once inside `geom_density()`. If 
+all the layers in a plot use the same aesthetic specification, we can move the
+call to the `aes()` function from the individual `geom_` functions to the 
+`ggplot()` function that begins the stack. This helps us avoid duplication and
+produces an identical chart.
+
+```{r dist-exercise3, exercise=TRUE}
+burglary %>%
+  filter(district == "Kettering") %>%
+  ggplot(aes(x = count)) +
+  geom_dotplot(binwidth = 1) +
+  geom_density(colour = "red", size = 2) +
+  labs(
+    title = "Number of burglaries in Ketting neighbourhoods",
+    subtitle = "each dot represents one LSOAs",
+    x = "count of burglaries, 2020",
+    y = "proportion of LSOAs"
+  ) +
+  theme_minimal()
+```
+
+We can use density curves to show the distribution of a variable across multiple
+categories at once. For example, we could show the distribution of burglary 
+counts at the neighbourhood level for all the districts in Northamptonshire. To
+do this we use the `geom_density_ridges()` function from the `ggridges` package
+to create a *ridge plot*. Although this function does not come from the 
+`ggplot2` package, it is designed to be used inside a `ggplot()` stack.
+
+```{r dist-exercise4, exercise=TRUE}
+library(ggridges)
+
+burglary %>% 
+  ggplot(aes(x = count, y = str_replace_all(district, "\\s", "\n"))) +
+  geom_density_ridges() +
+  labs(
+    title = "Number of burglaries in Ketting neighbourhoods",
+    x = "count of burglaries, 2020",
+    y = NULL
+  ) +
+  theme_minimal()
+```
+
+The ridge plot shows the distribution of burglary counts in LSOAs within each
+district, with the distributions overlapping slightly to save space. From this
+we can see that across all districts most LSOAs have few burglaries, with a 
+small number of LSOAs having more.
+
+```{r include=FALSE}
+burglary_district_counts <- count(burglary, district, sort = TRUE)
+```
+
+
+### Small-multiple charts
+
+Density plots can be helpful to summarise a lot of information, but they have 
+some disadvantages. In particular, they don't show that the number of LSOAs in
+each district is quite different: there are 
+`r pluck(burglary_district_counts, "n", 1)` LSOAs in 
+`r pluck(burglary_district_counts, "district", 1)` but only 
+`r pluck(burglary_district_counts, "n", nrow(burglary_district_counts))` LSOAs in
+`r pluck(burglary_district_counts, "district", nrow(burglary_district_counts))`.
+To make this clearer we can instead produce several dot plots, one for each
+district -- what are called *small-multiple* charts.
+
+We could create small-multiple charts by producing a separate dot plot for each
+district and then combine them with the `patchwork` package, but that would
+involve a lot of repeated code. Fortunately, we can use a feature of the 
+`ggplot2` package called *faceting* to split our single dot plot into multiple
+plots based on a column in the data (in this case, the district name).
+
+Adding `facet_wrap()` to our `ggplot()` stack will cause R to create multiple
+plots and wrap them across multiple rows and columns so that they approximately
+fit into the available space. If we only want the small multiples to appear on
+top of each other (i.e. in multiple rows) or next to each other (i.e. in 
+multiple columns), we can use the `facet_grid()` function. In this case we want
+the small multiples to appear on top of each other, so we will use 
+`facet_grid()` and say that the small multiples (which `ggplot2` calls *facets*)
+should be based on the `district` column in the data by specifying 
+`rows = vars(district)` (don't worry about why the `vars()` function is 
+necessary).
+
+
+```{r dist-exercise5, exercise=TRUE, exercise.lines=20, fig.asp=1}
+burglary %>%
+  ggplot(aes(x = count, colour = district, fill = district)) +
+  geom_hline(yintercept = 0, colour = "grey80") +
+  geom_dotplot(binwidth = 1, dotsize = 0.7) +
+  facet_grid(rows = vars(district), labeller = label_wrap_gen(width = 10)) +
+  labs(
+    title = "Number of burglaries in Northamptonshire neighbourhoods",
+    subtitle = "each dot represents one LSOA",
+    x = "count of burglaries, 2020",
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_blank(),
+    legend.position = "none",
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    strip.text.y = element_text(angle = 0, hjust = 0)
+  )
+```
+
+You might have noticed we made some other changes to our code for this chart to 
+make it clearer:
+
+  * Set the dot `colour` and `fill` to be based on the `district` column in the
+    data, so the dots in each small multiple will be a different colour. We then 
+    remove the legend that is automatically generated by adding the `colour` and 
+    `fill` aesthetics using the `legend.position = "none"` attribute to 
+    `theme()`, since the legend is redundant (the same information is shown in 
+    the facet labels).
+  * Made the dots slightly smaller with `dotsize = 0.7` because there are so 
+    many LSOAs in Northampton that otherwise some of the stacks would be too
+    tall to fit on the plot.
+  * Removed the values and the title on the *y* axis, since it is clear from the
+    rest of the chart that the vertical axis shows the count of dots in each
+    stack.
+  * Removed the grid lines for the *y* axis by setting the `theme()` attributes
+    `panel.grid.major.y` and `panel.grid.minor.y` to be `element_blank()`.
+  * Added a horizontal line at zero on the *y* axis using `geom_hline()` to make 
+    it easier to compare the height of each stack of dots to zero.
+  * Wrapped the facet labels using the `label_wrap_gen()` helper function so 
+    that some of the longer district names don't take up too much space 
+    horizontally.
+  * Made the facet labels easier to read by making the text horizontal (rather
+    than the default vertical text) using the `strip.text.y` attribute to 
+    `theme()` and the `element_text()` helper function. `angle` sets the 
+    rotation of the text (or in this case, specifies that there should be no
+    rotation) and `hjust = 0` specifies that the text should be left aligned.
+
+If you want to play around with each of these parts of the code to understand
+what they do in more detail, remove one part at a time and re-run the code to
+see how the appearance of the plot changes.
+
+There are many more-technical ways to show distributions, such as box plots or
+violin plots. However, these can be difficult to interpret for people who are
+not used to looking at those particular types of chart, so they should probably
+be avoided for communicating with general audiences.
+
+
+
+## Comparing continuous variables
+
+So far we have used bar charts to communicate a single number (in our example,
+a number of murders) for each value of a categorical variable (the name of each 
+Malaysian state or territory), and dot plots to show multiple numbers (burglary
+counts for each neighbourhood) for each value of a categorical variable 
+(districts in Northamptonshire). 
+
+Both these types of chart compare a numeric variable to a categorical one. But
+sometimes we may want to compare two categorical variables. We can do this with
+a *scatter plot*. For example, the object `vehicle_theft` contains rates of 
+thefts of and from motor vehicles per 100,000 households saying they own a 
+vehicle for a selection of `r nrow(vehicle_theft)` municipalities in South 
+Africa. Since thefts *of* vehicle and thefts *from* vehicles are different but 
+related crimes, we might want to see if there is a relationship between counts 
+of each type.
+
+```{r}
+head(vehicle_theft)
+```
+
+To create a `ggplot()` scatter plot we use `geom_point()`, the same function we
+previously used to create point maps. This makes sense, since point maps are a
+specialised type of scatter plot in which the *x* and *y* axes of the chart show
+the latitude and longitude or easting and northing of each crime location.
+
+```{r scatter-exercise1, exercise=TRUE, fig.asp=1}
+ggplot(
+  vehicle_theft, 
+  aes(x = theft_of_motor_vehicle, y = theft_from_motor_vehicle)
+) +
+  geom_point() +
+  labs(
+    title = "Vehicle thefts in South African municipalities",
+    subtitle = "each dot represents one municipality, 2018-19",
+    x = "rate of thefts of motor vehicles per 100,000 vehicle-owning households",
+    y = "rate of thefts from motor vehicles per 100,000 vehicle-owning households"
+  ) +
+  theme_minimal()
+```
+
+From this plot we can see that most areas have low rates of both theft of and
+theft from motor vehicles, with a few areas having very-high rates of one type
+or the other (but none have high rates of both).
+
+Looking at the bottom-left corner of the chart we can see that we have again
+encountered the problem of overlapping points making patterns less clear. We can
+try to deal with this by making the points semi-transparent using the `alpha`
+argument to `geom_point()`.
+
+Scatter plots can be hard for people to interpret, especially if they are not 
+used to interpreting charts. To help readers, we can annotate the plot to show
+how to interpret each region of the chart. We will add two types of annotation:
+
+  1. Lines to show the median value on each axis, i.e. the mid-point value that 
+     is larger than 50% of values and smaller than the other 50%.
+  2. Labels to help readers interpret the different parts of the plot.
+
+We can add median lines using the `geom_hline()` and `geom_vline()` functions,
+which add horizontal and vertical lines to plots. We will add these to the
+`ggplot()` stack *before* `geom_point()` so that the lines appear *behind* the
+points.
+
+To add text annotations we use the `annotate()` function from `ggplot2`, which
+allows us to add data to a chart by specifying the aesthetics (*x* and *y*
+position, etc.) directly rather than by referencing columns in the data. To add
+a text annotation, we set the `geom` argument of `annotate()` to `"text"`.
+
+```{r scatter-exercise3, exercise=TRUE, exercise.lines=46, fig.asp=1}
+ggplot(
+  vehicle_theft, 
+  aes(x = theft_of_motor_vehicle, y = theft_from_motor_vehicle)
+) +
+  geom_vline(
+    # On the next line of code we use the `pull()` function to extract the 
+    # values in the `theft_of_motor_vehicle` column and then the `median()`
+    # function to find the median value
+    xintercept = median(pull(vehicle_theft, "theft_of_motor_vehicle")),
+    linetype = "22"
+  ) +
+  geom_hline(
+    yintercept = median(pull(vehicle_theft, "theft_from_motor_vehicle")),
+    linetype = "22"
+  ) +
+  geom_point(alpha = 0.2) +
+  annotate(
+    # We specify `geom = "text"` because we want to annotate the chart with some
+    # text -- we could also have annotated the plot with a point, a line, etc.
+    geom = "text", 
+    # The values of `x` and `y` have been chosen manually based on looking at 
+    # the chart above
+    x = 1500, 
+    y = 10, 
+    label = "high rate of thefts of vehicles\nlow rate of thefts from vehicles", 
+    hjust = 1,
+    lineheight = 1
+  ) +
+  annotate(
+    geom = "text", 
+    x = 10, 
+    y = 6500, 
+    label = "low rate of thefts of vehicles\nhigh rate of thefts from vehicles", 
+    hjust = 0,
+    lineheight = 1
+  ) +
+  labs(
+    title = "Vehicle thefts in South African municipalities",
+    subtitle = str_glue(
+      "each dot represents one municipality, 2018-19, dashed lines show ",
+      "median values"
+    ),
+    x = "rate of thefts of motor vehicles per 100,000 vehicle-owning households",
+    y = "rate of thefts from motor vehicles per 100,000 vehicle-owning households"
+  ) +
+  theme_minimal()
+```
+
+From this plot we can now see that half of municipalities have very low rates of 
+both types of theft (shown by the number of dots below and to the left of the 
+median lines).
+
+We can make some further changes to this chart. For example, instead of 
+labelling areas on the plot we could instead label the municipalities with high
+rates of vehicle theft (we cannot include both types of label because they would
+overlap). To do that, we will create a new column in the data containing either
+the municipality name (for high-rate municipalities) or `NA` (meaning `ggplot()`
+will not create a label for that row if we set `na.rm = TRUE`). We can then use 
+the `geom_label_repel()` function from the `ggrepel` package (which is designed
+to extend what you can do with the `ggplot2` package) to add the labels to the 
+chart. We will also remember to add `label = label` to the `aes()` function so 
+`ggplot()` knows which column in the data to use for the labels.
+
+```{r scatter-exercise4, exercise=TRUE, exercise.lines=36, fig.asp=1}
+library(ggrepel)
+
+vehicle_theft %>% 
+  mutate(
+    # This code creates a new column called `label` that either contains the 
+    # name of the municipality (for extreme values) or the missing value `NA`
+    # (for all the municipalities without extreme values)
+    label = ifelse(
+      theft_of_motor_vehicle > 500 | theft_from_motor_vehicle > 2200, 
+      municipality, 
+      NA
+    )
+  ) %>% 
+  ggplot(
+    aes(x = theft_of_motor_vehicle, y = theft_from_motor_vehicle, label = label)
+  ) +
+  geom_vline(
+    xintercept = median(pull(vehicle_theft, "theft_of_motor_vehicle")),
+    linetype = "22"
+  ) +
+  geom_hline(
+    yintercept = median(pull(vehicle_theft, "theft_from_motor_vehicle")),
+    linetype = "22"
+  ) +
+  geom_point(alpha = 0.2) +
+  geom_label_repel(na.rm = TRUE, label.size = 0, lineheight = 1) +
+  labs(
+    title = "Vehicle thefts in South African municipalities",
+    subtitle = str_glue(
+      "each dot represents one municipality, 2018-19, dashed lines show ",
+      "median values"
+    ),
+    x = "rate of thefts of motor vehicles per 100,000 vehicle-owning households",
+    y = "rate of thefts from motor vehicles per 100,000 vehicle-owning households"
+  ) +
+  theme_minimal()
+```
+
+From this chart, we can see which municipalities have particularly unusual 
+vehicle theft rates. For example, we might well want to explore the rates of
+theft from vehicles in Laingsburg and Knysna municipalities to see what makes
+them so different from the others, and similarly for the rate of theft of 
+vehicles in Mthonjaneni.
+
+
+
+## In summary
+
+In this tutorial we have learned how to present data visually in R. These 
+techniques give us more flexibility about how to best present data to 
+communicate the main points that we want to get across.
+
+Whether to use a map or a chart, and which type of map or chart to use, are
+design decisions for you to make. When you make these decisions, always remember
+that what is most important is that your audience understands your message. This
+makes it very important that you understand your audience.
+
+Visualising data with charts is a very large topic and there are lots of 
+resources available to help you learn more. To get started, you might want to
+look at:
+
+  * [An Introduction to ggplot2](https://uc-r.github.io/ggplot_intro) from the
+    University of Cincinnati Business Analytics team.
+  * The [ggplot2 cheat sheet](https://github.com/rstudio/cheatsheets/blob/master/data-visualization-2.1.pdf)
+    by the team that develops the `ggplot2 package.
+  * The [R Graph Gallery](https://www.r-graph-gallery.com) for examples of many
+    other types of chart that you can produce in R.

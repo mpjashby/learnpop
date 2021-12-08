@@ -8,3 +8,15 @@ remotes::install_github(
   # Upgrade all dependencies that are not the latest version
   upgrade = "always"
 )
+
+if ("learnpop" %in% installed.packages()) {
+
+  library(learnpop)
+
+} else {
+
+  stop("There was an error while installing the necessary packages. PLEASE ASK FOR HELP.")
+
+}
+
+
