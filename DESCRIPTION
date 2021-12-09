@@ -9,6 +9,7 @@ Description: This package provides tutorials to learn how to use R to analyse
 License: MIT + file LICENSE
 Encoding: UTF-8
 Imports: 
+    gganimate,
     ggmap,
     ggridges,
     kableExtra,
@@ -17,6 +18,8 @@ Imports:
     readxl,
     scales,
     sf,
+    slider,
+    SpatialKDE,
     tidygeocoder,
     tidyverse
 RoxygenNote: 7.1.2
