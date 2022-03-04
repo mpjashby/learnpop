@@ -338,7 +338,7 @@ records of aggravated assaults in Chicago from 2010 to 2019.
 ```{r}
 assaults %>% 
   head() %>% 
-  gt::gt()
+  knitr::kable()
 ```
 
 The first task in charting the frequency of crime is to choose a temporal *unit 

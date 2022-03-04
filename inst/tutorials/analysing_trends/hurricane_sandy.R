@@ -10,7 +10,7 @@ library(tsibble)
 library(tidyverse)
 
 # Load data
-offences_against_persons <- read_csv("")
+offences_against_persons <- read_csv("https://github.com/mpjashby/learnpop/raw/main/inst/extdata/nyc_personal_crime.csv.gz")
 
 # Get dates of public holidays in NYC
 holidays <- as_date(timeDate::holidayNYSE(year = 2010:2014))
